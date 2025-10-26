@@ -4,4 +4,4 @@ firebase-admin
 python-dotenv
 requests
 google-cloud-firestore
-google-generativeai
+google-generativeai==0.5.2
