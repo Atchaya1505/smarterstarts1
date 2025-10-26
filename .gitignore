@@ -1,0 +1,24 @@
+# Environment files
+.env/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Keys and credentials
+keys/
+*.json
+
+# Node / Frontend folders
+node_modules/
+build/
+dist/
+smarterstarts-frontend/
+
+# Editor and system junk
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
