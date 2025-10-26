@@ -15,7 +15,9 @@ from sheets_updater import append_to_sheet  # ✅ Direct import for live sheet s
 # ----------------------------------------------
 load_dotenv()
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-db = firestore.Client.from_service_account_json("keys/smarterstarts1-firebase.json")
+import json, os
+firebase_credentials = json.loads(os.getenv("FIREBASE_CREDENTIALS"))
+db = firestore.Client.from_service_account_info(firebase_credentials)
 
 # 🔍 Firestore connection test
 try:
