@@ -1,4 +1,7 @@
+Flask
+flask-cors
 firebase-admin
-flask
 python-dotenv
-openai
+requests
+google-cloud-firestore
+google-generativeai
