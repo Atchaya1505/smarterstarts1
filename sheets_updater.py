@@ -9,9 +9,9 @@ SCOPE = [
     "https://www.googleapis.com/auth/drive"
 ]
 
-creds = Credentials.from_service_account_file(
-    "keys/smarterstarts1-firebase.json",  # path to your service key
-    scopes=SCOPE
+import json, os
+firebase_credentials = json.loads(os.getenv("FIREBASE_CREDENTIALS"))
+creds = Credentials.from_service_account_info(firebase_credentials, scopes=SCOPE)
 )
 
 gc = gspread.authorize(creds)
