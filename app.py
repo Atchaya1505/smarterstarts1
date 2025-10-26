@@ -20,7 +20,11 @@ CORS(app)
 
 load_dotenv()
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-db = firestore.Client.from_service_account_json("keys/smarterstarts1-firebase.json")
+import json, os
+from google.cloud import firestore
+
+firebase_credentials = json.loads(os.getenv("FIREBASE_CREDENTIALS"))
+db = firestore.Client.from_service_account_info(firebase_credentials)
 
 try:
     db.collection("connection_test").add({"status": "success"})
