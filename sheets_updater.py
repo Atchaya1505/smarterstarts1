@@ -1,5 +1,6 @@
 import gspread
 from google.oauth2.service_account import Credentials
+import json, os
 
 # ----------------------------------------------
 # Google Sheets authentication
@@ -9,10 +10,9 @@ SCOPE = [
     "https://www.googleapis.com/auth/drive"
 ]
 
-import json, os
+# ✅ Load Firebase credentials from Render environment
 firebase_credentials = json.loads(os.getenv("FIREBASE_CREDENTIALS"))
 creds = Credentials.from_service_account_info(firebase_credentials, scopes=SCOPE)
-)
 
 gc = gspread.authorize(creds)
 
@@ -48,7 +48,6 @@ def append_to_sheet(data):
 # Optional test
 # ----------------------------------------------
 if __name__ == "__main__":
-    # Test a dummy entry (remove later)
     append_to_sheet({
         "user": {
             "name": "Test User",
