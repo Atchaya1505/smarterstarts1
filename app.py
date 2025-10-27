@@ -18,8 +18,18 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
+# ✅ Add this block below your CORS line
+@app.after_request
+def after_request(response):
+    response.headers.add("Access-Control-Allow-Origin", "*")
+    response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization")
+    response.headers.add("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+    return response
+
+# continue with your existing code below 👇
 load_dotenv()
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
 import json, os
 from google.cloud import firestore
 
