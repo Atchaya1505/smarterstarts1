@@ -94,7 +94,6 @@ def recommend_tools(problem_description, company_size):
             }
         )
 
-        # ✅ Handle empty or partial responses gracefully
         if response and hasattr(response, "text") and response.text:
             print("✅ Gemini responded successfully.")
             return response.text
@@ -105,7 +104,6 @@ def recommend_tools(problem_description, company_size):
     except Exception as e:
         print(f"⚠️ Gemini generation failed: {e}")
         return f"⚠️ Gemini error: {e}"
-
 
 def send_admin_alert(data):
     try:
@@ -178,12 +176,10 @@ def recommend_api():
         data = request.get_json()
         print("📩 Received:", data)
 
-        # Step 1 – Generate Gemini response quickly
         problem = data.get("problem", "")
         company_size = data.get("company_size", "")
         recommendations = recommend_tools(problem, company_size)
 
-        # Prepare session object
         session_data = {
             "user": {
                 "name": data.get("name", ""),
@@ -200,8 +196,9 @@ def recommend_api():
             "createdAt": datetime.datetime.utcnow().isoformat()
         }
 
-        # Step 2 – Send result to frontend immediately
+        # ✅ Run Firestore + Sheets + Email in background
         Thread(target=background_sync, args=(session_data,)).start()
+
         print("✅ Sent recommendations instantly.")
         return jsonify({"status": "success", "recommendations": recommendations})
 
@@ -215,11 +212,12 @@ def submit_feedback():
         data = request.get_json()
         print("📝 Final feedback received:", data)
 
-        save_to_firestore(data)
-        append_to_sheet(data)
-        send_admin_alert(data)
+        # ✅ Run feedback sync in background
+        Thread(target=background_sync, args=(data,)).start()
 
-        return jsonify({"status": "success", "message": "Feedback saved successfully!"})
+        # ✅ Respond instantly
+        return jsonify({"status": "success", "message": "Feedback syncing in background"}), 200
+
     except Exception as e:
         print("❌ Error saving feedback:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
