@@ -3,7 +3,6 @@ import json
 import datetime
 import smtplib
 import re
-import time
 from threading import Thread
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -36,25 +35,15 @@ except Exception as e:
     print(f"❌ Firestore connection failed: {e}")
 
 # =========================================================
-# STEP 2: Model detection
+# STEP 2: Gemini model configuration
 # =========================================================
-def get_available_model():
-    try:
-        available_models = list(genai.list_models())
-        for m in available_models:
-            if hasattr(m, "supported_generation_methods") and "generateContent" in m.supported_generation_methods:
-                print(f"✅ Using model: {m.name}")
-                return m.name
-    except Exception as e:
-        print(f"⚠️ Model detection failed: {e}")
-    return "models/gemini-1.5-flash-latest"
-
-MODEL_NAME = get_available_model()
+MODEL_NAME = "gemini-1.5-flash"
 
 # =========================================================
 # STEP 3: Helper functions
 # =========================================================
 def save_to_firestore(data):
+    """Save data to Firestore."""
     try:
         db.collection("smarterstarts_sessions").add(data)
         print("✅ Saved to Firestore")
@@ -62,13 +51,13 @@ def save_to_firestore(data):
         print(f"⚠️ Firestore save failed: {e}")
 
 # ---------------------------------------------------------
-# ⚡ Optimized Gemini function — smaller output, faster response
+# ⚡ Fast Gemini recommendation generation (runs in background)
 # ---------------------------------------------------------
 def recommend_tools(problem_description, company_size):
     try:
         prompt = f"""
         You are an AI SaaS Tool Recommender.
-        Recommend the 3–5 best SaaS tools for the user based on their problem and company size.
+        Recommend 3–5 best SaaS tools for the user's problem and company size.
 
         Problem: {problem_description}
         Company Size: {company_size}
@@ -76,19 +65,18 @@ def recommend_tools(problem_description, company_size):
         For each tool, include:
         1. Tool Name
         2. Core Purpose
-        3. 1–2 Key Features
+        3. Key Features (2 lines max)
         4. Pricing (USD)
         """
 
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel(MODEL_NAME)
 
-        # ⚡ Faster config (shorter max tokens)
         response = model.generate_content(
             prompt,
             generation_config={
                 "temperature": 0.7,
                 "top_p": 0.9,
-                "max_output_tokens": 512  # ⬅️ reduced for speed
+                "max_output_tokens": 512  # faster response
             }
         )
 
@@ -105,6 +93,7 @@ def recommend_tools(problem_description, company_size):
 
 # ---------------------------------------------------------
 def send_admin_alert(data):
+    """Send admin email notification."""
     try:
         sender = os.getenv("ALERT_EMAIL")
         password = os.getenv("ALERT_EMAIL_PASSWORD")
@@ -120,10 +109,7 @@ def send_admin_alert(data):
         user_feedback = data.get("user_feedback", "No feedback provided")
 
         star_display = "⭐" * int(rating) if rating else "N/A"
-        tool_list_html = (
-            "".join(f"<li>{tool}</li>" for tool in selected_tools)
-            if selected_tools else "<li>No tools selected</li>"
-        )
+        tool_list_html = "".join(f"<li>{tool}</li>" for tool in selected_tools) or "<li>No tools selected</li>"
 
         html = f"""
         <html><body>
@@ -139,6 +125,7 @@ def send_admin_alert(data):
         <p><b>Created At:</b> {data['createdAt']}</p>
         </body></html>
         """
+
         msg.attach(MIMEText(html, "html"))
 
         with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
@@ -151,20 +138,24 @@ def send_admin_alert(data):
         print(f"⚠️ Email send failed: {e}")
 
 # =========================================================
-# STEP 4: Background Gemini generation
+# STEP 4: Background thread logic
 # =========================================================
 def background_generate(session_data):
+    """Run Gemini, Firestore, Google Sheets, and Email in background."""
     try:
         print("⚙️ Running background Gemini generation...")
         problem = session_data["problem"]
         company_size = session_data["user"]["company_size"]
 
+        # Generate Gemini recommendations
         recommendations = recommend_tools(problem, company_size)
         session_data["recommendations"] = recommendations
 
+        # Sync data
         save_to_firestore(session_data)
         append_to_sheet(session_data)
         send_admin_alert(session_data)
+
         print("✅ Background generation + sync complete.")
     except Exception as e:
         print(f"⚠️ Background generation failed: {e}")
@@ -177,7 +168,7 @@ def home():
     return jsonify({"status": "ok", "message": "SmarterStarts backend live ✅"})
 
 # ---------------------------------------------------------
-# ⚡ Instant /recommend API (returns <3 sec)
+# ⚡ Instant /recommend endpoint (<3 seconds)
 # ---------------------------------------------------------
 @app.route("/recommend", methods=["POST"])
 def recommend_api():
@@ -197,7 +188,7 @@ def recommend_api():
                 "budget": data.get("budget", "")
             },
             "problem": problem,
-            "recommendations": "🧠 Generating your personalized SaaS tool recommendations...",
+            "recommendations": "🧠 Generating recommendations in the background...",
             "selected_tools": [],
             "rating": 0,
             "user_feedback": "",
@@ -205,10 +196,10 @@ def recommend_api():
             "createdAt": datetime.datetime.utcnow().isoformat()
         }
 
-        # 🧵 Run Gemini + Firestore + Sheets + Email in background
+        # 🧵 Run all heavy operations asynchronously
         Thread(target=background_generate, args=(session_data,)).start()
 
-        # ⚡ Return immediately (<3 sec)
+        # ✅ Return instantly (no wait for Gemini)
         return jsonify({
             "status": "success",
             "recommendations": session_data["recommendations"],
