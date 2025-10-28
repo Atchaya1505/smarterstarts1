@@ -10,7 +10,7 @@ from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
 import google.generativeai as genai
 from google.cloud import firestore
-from sheets_updater import append_to_sheet  # ✅ Direct import for live sheet sync
+from sheets_updater import append_to_sheet
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
@@ -61,11 +61,14 @@ def save_to_firestore(data):
     except Exception as e:
         print(f"⚠️ Firestore save failed: {e}")
 
+# ---------------------------------------------------------
+# ⚡ Optimized Gemini function — smaller output, faster response
+# ---------------------------------------------------------
 def recommend_tools(problem_description, company_size):
     try:
         prompt = f"""
         You are an AI SaaS Tool Recommender.
-        Analyze the user's problem and company size, then recommend the top 5 SaaS tools.
+        Recommend the 3–5 best SaaS tools for the user based on their problem and company size.
 
         Problem: {problem_description}
         Company Size: {company_size}
@@ -73,24 +76,19 @@ def recommend_tools(problem_description, company_size):
         For each tool, include:
         1. Tool Name
         2. Core Purpose
-        3. How it suits the user's problem
-        4. Key Features
-        5. Pros
-        6. Cons
-        7. Approx Monthly Pricing (USD)
-        8. Website Link
+        3. 1–2 Key Features
+        4. Pricing (USD)
         """
 
-        # ⚡ Force fastest model
         model = genai.GenerativeModel("gemini-1.5-flash")
 
-        # ⏱ Safer config with soft token limit
+        # ⚡ Faster config (shorter max tokens)
         response = model.generate_content(
             prompt,
             generation_config={
-                "temperature": 0.8,
+                "temperature": 0.7,
                 "top_p": 0.9,
-                "max_output_tokens": 1024
+                "max_output_tokens": 512  # ⬅️ reduced for speed
             }
         )
 
@@ -105,6 +103,7 @@ def recommend_tools(problem_description, company_size):
         print(f"⚠️ Gemini generation failed: {e}")
         return f"⚠️ Gemini error: {e}"
 
+# ---------------------------------------------------------
 def send_admin_alert(data):
     try:
         sender = os.getenv("ALERT_EMAIL")
@@ -152,16 +151,23 @@ def send_admin_alert(data):
         print(f"⚠️ Email send failed: {e}")
 
 # =========================================================
-# STEP 4: Background tasks
+# STEP 4: Background Gemini generation
 # =========================================================
-def background_sync(data):
+def background_generate(session_data):
     try:
-        save_to_firestore(data)
-        append_to_sheet(data)
-        send_admin_alert(data)
-        print("✅ Background sync done")
+        print("⚙️ Running background Gemini generation...")
+        problem = session_data["problem"]
+        company_size = session_data["user"]["company_size"]
+
+        recommendations = recommend_tools(problem, company_size)
+        session_data["recommendations"] = recommendations
+
+        save_to_firestore(session_data)
+        append_to_sheet(session_data)
+        send_admin_alert(session_data)
+        print("✅ Background generation + sync complete.")
     except Exception as e:
-        print(f"⚠️ Background sync failed: {e}")
+        print(f"⚠️ Background generation failed: {e}")
 
 # =========================================================
 # STEP 5: API Routes
@@ -170,6 +176,9 @@ def background_sync(data):
 def home():
     return jsonify({"status": "ok", "message": "SmarterStarts backend live ✅"})
 
+# ---------------------------------------------------------
+# ⚡ Instant /recommend API (returns <3 sec)
+# ---------------------------------------------------------
 @app.route("/recommend", methods=["POST"])
 def recommend_api():
     try:
@@ -178,8 +187,8 @@ def recommend_api():
 
         problem = data.get("problem", "")
         company_size = data.get("company_size", "")
-        recommendations = recommend_tools(problem, company_size)
 
+        # Minimal placeholder for instant return
         session_data = {
             "user": {
                 "name": data.get("name", ""),
@@ -188,35 +197,42 @@ def recommend_api():
                 "budget": data.get("budget", "")
             },
             "problem": problem,
-            "recommendations": recommendations,
+            "recommendations": "🧠 Generating your personalized SaaS tool recommendations...",
             "selected_tools": [],
             "rating": 0,
             "user_feedback": "",
-            "status": "Pending Consultation",
+            "status": "Processing",
             "createdAt": datetime.datetime.utcnow().isoformat()
         }
 
-        # ✅ Run Firestore + Sheets + Email in background
-        Thread(target=background_sync, args=(session_data,)).start()
+        # 🧵 Run Gemini + Firestore + Sheets + Email in background
+        Thread(target=background_generate, args=(session_data,)).start()
 
-        print("✅ Sent recommendations instantly.")
-        return jsonify({"status": "success", "recommendations": recommendations})
+        # ⚡ Return immediately (<3 sec)
+        return jsonify({
+            "status": "success",
+            "recommendations": session_data["recommendations"],
+            "tool_names": []
+        }), 200
 
     except Exception as e:
         print("❌ Error:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
 
+# ---------------------------------------------------------
 @app.route("/submit_feedback", methods=["POST"])
 def submit_feedback():
     try:
         data = request.get_json()
         print("📝 Final feedback received:", data)
 
-        # ✅ Run feedback sync in background
-        Thread(target=background_sync, args=(data,)).start()
+        Thread(target=background_generate, args=(data,)).start()
 
         # ✅ Respond instantly
-        return jsonify({"status": "success", "message": "Feedback syncing in background"}), 200
+        return jsonify({
+            "status": "success",
+            "message": "Feedback syncing in background"
+        }), 200
 
     except Exception as e:
         print("❌ Error saving feedback:", e)
