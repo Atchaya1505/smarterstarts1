@@ -18,10 +18,23 @@ from flask_cors import CORS
 # STEP 1: Flask + CORS Setup
 # =========================================================
 app = Flask(__name__)
-CORS(app, origins=["*"], supports_credentials=True)
+
+# ✅ Allow specific frontend origins (Netlify + Localhost)
+CORS(app, resources={
+    r"/*": {
+        "origins": [
+            "http://localhost:3000",
+            "https://smarterstarts.netlify.app"
+        ],
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"]
+    }
+}, supports_credentials=True)
+
 
 @app.after_request
 def after_request(response):
+    """Ensure all requests have CORS headers"""
     response.headers.add("Access-Control-Allow-Origin", "*")
     response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization")
     response.headers.add("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
@@ -34,7 +47,6 @@ def after_request(response):
 load_dotenv()
 
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-
 firebase_credentials = json.loads(os.getenv("FIREBASE_CREDENTIALS"))
 db = firestore.Client.from_service_account_info(firebase_credentials)
 
@@ -216,9 +228,12 @@ def home():
     return jsonify({"status": "ok", "message": "SmarterStarts backend is live ✅"})
 
 
-@app.route("/recommend", methods=["POST"])
+@app.route("/recommend", methods=["POST", "OPTIONS"])
 def recommend_api():
     """Generate AI recommendations and save the initial session."""
+    if request.method == "OPTIONS":
+        return jsonify({"status": "ok"}), 200
+
     try:
         data = request.get_json()
         print("📩 Received:", data)
