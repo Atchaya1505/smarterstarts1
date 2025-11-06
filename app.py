@@ -16,9 +16,10 @@ from flask_cors import CORS
 # STEP 1: Load environment and configure APIs
 # =========================================================
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
-# ✅ Add this block below your CORS line
+# ✅ FIXED CORS for Render
+CORS(app, origins=["*"], supports_credentials=True)
+
 @app.after_request
 def after_request(response):
     response.headers.add("Access-Control-Allow-Origin", "*")
