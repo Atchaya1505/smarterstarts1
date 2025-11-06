@@ -90,19 +90,22 @@ def save_to_firestore(data):
 
 
 # =========================================================
-# STEP 4: Auto-detect Gemini Model
+# STEP 4: Select Stable Gemini Model
 # =========================================================
 def get_available_model():
+    """Force a stable Gemini model for production."""
     try:
         models = list(genai.list_models())
         for m in models:
             if "generateContent" in getattr(m, "supported_generation_methods", []):
-                print(f"✅ Using Gemini model: {m.name}")
-                return m.name
-        return "models/gemini-2.5-pro-preview-03-25"
+                if "1.5-pro-latest" in m.name:
+                    print(f"✅ Using Gemini model: {m.name}")
+                    return m.name
+        print("⚠️ Stable model not found; falling back to default.")
+        return "models/gemini-1.5-pro-latest"
     except Exception as e:
         print(f"⚠️ Could not list models: {e}")
-        return "models/gemini-2.5-pro-preview-03-25"
+        return "models/gemini-1.5-pro-latest"
 
 
 MODEL_NAME = get_available_model()
@@ -128,7 +131,7 @@ def recommend_tools(problem_description, company_size):
     7. **Approx Monthly Pricing (USD)**
     8. **Website Link**
 
-    Ensure clean readable markdown format.
+    Ensure clean, readable markdown format.
     """
     try:
         model = genai.GenerativeModel(MODEL_NAME)
@@ -146,6 +149,7 @@ def recommend_tools(problem_description, company_size):
             if match:
                 tool_names.append(match.group(1).strip())
 
+        print("✅ Gemini generation succeeded.")
         return {"text": text, "tools": tool_names}
 
     except Exception as e:
