@@ -3,7 +3,6 @@ import datetime
 import re
 import smtplib
 import json
-from threading import Thread
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
@@ -15,11 +14,12 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 # =========================================================
-# STEP 1: Environment + Flask Setup
+# STEP 1: Load environment and configure APIs
 # =========================================================
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
+# ✅ Allow all origins (fixes frontend CORS issues)
 @app.after_request
 def after_request(response):
     response.headers.add("Access-Control-Allow-Origin", "*")
@@ -27,11 +27,15 @@ def after_request(response):
     response.headers.add("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
     return response
 
+
+# Load environment variables
 load_dotenv()
+
+# Configure Gemini API
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 # =========================================================
-# STEP 2: Firebase + Firestore Setup
+# Firestore setup
 # =========================================================
 firebase_credentials = json.loads(os.getenv("FIREBASE_CREDENTIALS"))
 db = firestore.Client.from_service_account_info(firebase_credentials)
@@ -43,12 +47,14 @@ except Exception as e:
     print(f"❌ Firestore connection failed: {e}")
 
 # =========================================================
-# STEP 3: Google Sheets Setup
+# STEP 2: Google Sheets Setup
 # =========================================================
 SCOPE = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
 ]
+
+firebase_credentials = json.loads(os.getenv("FIREBASE_CREDENTIALS"))
 creds = Credentials.from_service_account_info(firebase_credentials, scopes=SCOPE)
 gc = gspread.authorize(creds)
 SHEET_NAME = "SmarterStarts_Consultations"
@@ -56,6 +62,7 @@ worksheet = gc.open(SHEET_NAME).sheet1
 
 
 def append_to_sheet(data):
+    """Append consultation session data to Google Sheets."""
     try:
         worksheet.append_row([
             data["user"]["name"],
@@ -70,76 +77,99 @@ def append_to_sheet(data):
             data.get("createdAt", ""),
             data.get("status", "Pending Consultation"),
         ])
-        print("✅ Synced to Google Sheet successfully.")
+        print("✅ Data synced to Google Sheet successfully!")
     except Exception as e:
-        print(f"⚠️ Sheet sync error: {e}")
+        print(f"⚠️ Error syncing to Google Sheet: {e}")
+
 
 # =========================================================
-# STEP 4: Save to Firestore
+# STEP 3: Firestore Save
 # =========================================================
 def save_to_firestore(data):
     try:
         db.collection("smarterstarts_sessions").add(data)
-        print("✅ Saved to Firestore.")
+        print("✅ Data saved to smarterstarts_sessions.")
     except Exception as e:
         print(f"⚠️ Firestore save failed: {e}")
 
+
 # =========================================================
-# STEP 5: Gemini Recommendation Logic (Fixed)
+# STEP 4: Auto-detect Gemini Model
+# =========================================================
+def get_available_model():
+    try:
+        models = list(genai.list_models())
+        for m in models:
+            if "generateContent" in getattr(m, "supported_generation_methods", []):
+                print(f"✅ Using Gemini model: {m.name}")
+                return m.name
+        return "models/gemini-1.5-flash"
+    except Exception as e:
+        print(f"⚠️ Could not list models: {e}")
+        return "models/gemini-1.5-flash"
+
+
+MODEL_NAME = get_available_model()
+
+
+# =========================================================
+# STEP 5: Generate Recommendations
 # =========================================================
 def recommend_tools(problem_description, company_size):
+    prompt = f"""
+You are an expert AI SaaS Tool Recommender.
+Analyze the user's problem and company size, and generate the **top 5 SaaS tools**, ranked 1–5, in professional markdown format.
+
+Problem: {problem_description}
+Company Size: {company_size}
+
+Each tool must include:
+1. **Tool Name**
+2. **Core Purpose**
+3. **How it suits the user's problem**
+4. **Key Features** (4–6 bullet points)
+5. **Pros**
+6. **Cons**
+7. **Approx Monthly Pricing (USD)**
+8. **Website Link**
+
+Ensure clean readable markdown format.
+"""
+
     try:
-        prompt = f"""
-        You are an expert SaaS Tool Recommender.
-        Based on the user's problem and company size, suggest the top 5 SaaS tools in professional markdown format.
-
-        Problem: {problem_description}
-        Company Size: {company_size}
-
-        Each tool must include:
-        1. **Tool Name**
-        2. **Purpose**
-        3. **Why it fits the user's need**
-        4. **3–5 Key Features**
-        5. **Approx Monthly Pricing (USD)**
-        6. **Website Link**
-        """
-
-        # ✅ Use fast, stable Gemini model
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        response = model.generate_content(
-            prompt,
-            generation_config={
-                "temperature": 0.7,
-                "max_output_tokens": 700
-            }
-        )
+        model = genai.GenerativeModel(MODEL_NAME)
+        response = model.generate_content(prompt)
 
         if not response or not response.text:
             raise Exception("Empty Gemini response")
 
         text = response.text.strip()
 
-        # Extract tool names for frontend display
+        # Extract tool names
+        lines = text.split("\n")
         tool_names = []
-        for line in text.split("\n"):
+        for line in lines:
             match = re.match(r"^\d+\.\s*([A-Za-z0-9 &+_:\-–—()./]+)", line.strip())
             if match:
                 tool_names.append(match.group(1).strip())
 
-        return {"text": text, "tools": tool_names[:5]}
+        return {"text": text, "tools": tool_names}
 
     except Exception as e:
-        print(f"⚠️ Gemini error: {e}")
+        print(f"⚠️ Gemini generation error: {e}")
         return {
-            "text": "⚠️ Gemini model failed. Please try again.",
-            "tools": []
+            "text": """
+⚠️ Gemini model failed. Please try again.
+""",
+            "tools": [],
         }
 
+
 # =========================================================
-# STEP 6: Email Alert
+# STEP 6: Email Notification
 # =========================================================
 def send_admin_alert(data):
+    """Send email to admin when new consultation is created."""
     try:
         sender = os.getenv("ALERT_EMAIL")
         password = os.getenv("ALERT_EMAIL_PASSWORD")
@@ -151,14 +181,19 @@ def send_admin_alert(data):
         msg["To"] = receiver
 
         html = f"""
-        <html><body>
-        <h3>New Consultation Created 🚀</h3>
-        <p><b>Name:</b> {data['user']['name']}<br>
-        <b>Email:</b> {data['user']['email']}<br>
-        <b>Company Size:</b> {data['user']['company_size']}<br>
-        <b>Problem:</b> {data['problem']}</p>
-        <p><b>Created:</b> {data['createdAt']}</p>
-        </body></html>
+        <html>
+        <body>
+            <h3>New SmarterStarts Consultation Alert 🚀</h3>
+            <p><b>Name:</b> {data['user']['name']}<br>
+            <b>Email:</b> {data['user']['email']}<br>
+            <b>Company Size:</b> {data['user']['company_size']}<br>
+            <b>Problem:</b> {data['problem']}</p>
+            <p><b>Selected Tools:</b> {", ".join(data.get("selected_tools", []))}</p>
+            <p><b>Rating:</b> {data.get("rating", "N/A")} / 5<br>
+            <b>Feedback:</b> {data.get("user_feedback", "N/A")}</p>
+            <p><b>Created:</b> {data['createdAt']}</p>
+        </body>
+        </html>
         """
 
         msg.attach(MIMEText(html, "html"))
@@ -167,33 +202,25 @@ def send_admin_alert(data):
             smtp.login(sender, password)
             smtp.sendmail(sender, receiver, msg.as_string())
 
-        print("📧 Admin email sent successfully.")
+        print("📧 Admin alert sent successfully.")
     except Exception as e:
         print(f"⚠️ Email alert failed: {e}")
 
-# =========================================================
-# STEP 7: Background Sync
-# =========================================================
-def background_sync(data):
-    try:
-        save_to_firestore(data)
-        append_to_sheet(data)
-        send_admin_alert(data)
-    except Exception as e:
-        print(f"⚠️ Background sync failed: {e}")
 
 # =========================================================
-# STEP 8: API Routes
+# STEP 7: Flask API Routes
 # =========================================================
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({"status": "ok", "message": "SmarterStarts backend is live ✅"})
 
+
 @app.route("/recommend", methods=["POST"])
 def recommend_api():
+    """Generate AI recommendations and save the initial session."""
     try:
         data = request.get_json()
-        print("📩 Received request:", data)
+        print("📩 Received:", data)
 
         problem = data.get("problem", "")
         name = data.get("name", "")
@@ -219,8 +246,9 @@ def recommend_api():
             "createdAt": datetime.datetime.now(datetime.UTC).isoformat(),
         }
 
-        # Run Firestore/Sheets/Email in background
-        Thread(target=background_sync, args=(session_data,)).start()
+        save_to_firestore(session_data)
+        append_to_sheet(session_data)
+        send_admin_alert(session_data)
 
         return jsonify({
             "status": "success",
@@ -228,23 +256,30 @@ def recommend_api():
             "tool_names": recommendations["tools"]
         })
     except Exception as e:
-        print("❌ /recommend Error:", e)
+        print("❌ Error:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
+
 
 @app.route("/submit_feedback", methods=["POST"])
 def submit_feedback():
+    """Save final selected tools, rating, and feedback."""
     try:
         data = request.get_json()
-        print("📝 Feedback received:", data)
-        Thread(target=background_sync, args=(data,)).start()
+        print("📝 Final submission received:", data)
+
+        save_to_firestore(data)
+        append_to_sheet(data)
+        send_admin_alert(data)
+
         return jsonify({"status": "success", "message": "Feedback saved successfully!"})
     except Exception as e:
-        print("❌ /submit_feedback Error:", e)
+        print("❌ Error saving feedback:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
 
+
 # =========================================================
-# STEP 9: Production Entry Point (Gunicorn)
+# STEP 8: Run the server
 # =========================================================
 if __name__ == "__main__":
-    print("🚀 SmarterStarts backend running locally...")
+    print("🚀 SmarterStarts Flask backend running on port 5000...")
     app.run(host="0.0.0.0", port=5000, debug=True)
