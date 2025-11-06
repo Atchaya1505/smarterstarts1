@@ -129,7 +129,6 @@ def recommend_tools(problem_description, company_size):
     Ensure clean, readable markdown format.
     """
     try:
-        try:
         model = genai.GenerativeModel(MODEL_NAME)
 
         # ✅ Added longer timeout + better error tracking
