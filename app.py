@@ -151,7 +151,10 @@ def recommend_tools(problem_description, company_size):
         return {"text": text, "tools": tool_names}
 
     except Exception as e:
-        print(f"⚠️ Gemini API error: {e}")
+        import traceback
+        print("⚠️ Gemini generation error (full details below):")
+        traceback.print_exc()
+        print("⚠️ END Gemini Error ---------------------------------------------------")
         return {
             "text": """
 1. ClickUp – All-in-one project management.
