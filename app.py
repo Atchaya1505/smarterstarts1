@@ -27,7 +27,10 @@ def after_request(response):
     response.headers.add("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
     return response
 
-# continue with your existing code below 👇
+
+# =========================================================
+# STEP 2: Environment and Firestore Setup
+# =========================================================
 load_dotenv()
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
@@ -41,15 +44,15 @@ try:
 except Exception as e:
     print(f"❌ Firestore connection failed: {e}")
 
+
 # =========================================================
-# STEP 2: Google Sheets Setup
+# STEP 3: Google Sheets Setup
 # =========================================================
 SCOPE = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
 ]
 
-firebase_credentials = json.loads(os.getenv("FIREBASE_CREDENTIALS"))
 creds = Credentials.from_service_account_info(firebase_credentials, scopes=SCOPE)
 gc = gspread.authorize(creds)
 
@@ -79,7 +82,7 @@ def append_to_sheet(data):
 
 
 # =========================================================
-# STEP 3: Firestore Save
+# STEP 4: Firestore Save
 # =========================================================
 def save_to_firestore(data):
     try:
@@ -90,33 +93,25 @@ def save_to_firestore(data):
 
 
 # =========================================================
-# STEP 4: Select Stable Gemini Model
+# STEP 5: Gemini Model Configuration (Fixed)
 # =========================================================
 def get_available_model():
-    """Force a stable Gemini model for production."""
-    try:
-        models = list(genai.list_models())
-        for m in models:
-            if "generateContent" in getattr(m, "supported_generation_methods", []):
-                if "1.5-pro-latest" in m.name:
-                    print(f"✅ Using Gemini model: {m.name}")
-                    return m.name
-        print("⚠️ Stable model not found; falling back to default.")
-        return "models/gemini-1.5-pro-latest"
-    except Exception as e:
-        print(f"⚠️ Could not list models: {e}")
-        return "models/gemini-1.5-pro-latest"
+    """Use a fixed stable Gemini model for production."""
+    model_name = "models/gemini-1.5-pro-latest"
+    print(f"✅ Using fixed Gemini model: {model_name}")
+    return model_name
 
 
 MODEL_NAME = get_available_model()
 
 
 # =========================================================
-# STEP 5: Generate Recommendations
+# STEP 6: Generate Recommendations
 # =========================================================
 def recommend_tools(problem_description, company_size):
     prompt = f"""
-    You are an expert AI SaaS Tool Recommender. Analyze the user's problem and company size, and generate the **top 5 SaaS tools**, ranked 1–5, in professional markdown format.
+    You are an expert AI SaaS Tool Recommender. Analyze the user's problem and company size, 
+    and generate the **top 5 SaaS tools**, ranked 1–5, in professional markdown format.
 
     Problem: {problem_description}
     Company Size: {company_size}
@@ -136,6 +131,7 @@ def recommend_tools(problem_description, company_size):
     try:
         model = genai.GenerativeModel(MODEL_NAME)
         response = model.generate_content(prompt)
+
         if not response or not response.text:
             raise Exception("Empty Gemini response")
 
@@ -149,7 +145,7 @@ def recommend_tools(problem_description, company_size):
             if match:
                 tool_names.append(match.group(1).strip())
 
-        print("✅ Gemini generation succeeded.")
+        print(f"✅ Gemini generation succeeded. Sample output: {text[:120]}...")
         return {"text": text, "tools": tool_names}
 
     except Exception as e:
@@ -167,7 +163,7 @@ def recommend_tools(problem_description, company_size):
 
 
 # =========================================================
-# STEP 6: Email Notification
+# STEP 7: Email Notification
 # =========================================================
 def send_admin_alert(data):
     """Send email to admin when new consultation is created."""
@@ -209,7 +205,7 @@ def send_admin_alert(data):
 
 
 # =========================================================
-# STEP 7: Flask API Routes
+# STEP 8: Flask API Routes
 # =========================================================
 @app.route("/", methods=["GET"])
 def home():
@@ -279,7 +275,7 @@ def submit_feedback():
 
 
 # =========================================================
-# STEP 8: Run the server
+# STEP 9: Run the server
 # =========================================================
 if __name__ == "__main__":
     print("🚀 SmarterStarts Flask backend running on port 5000...")
