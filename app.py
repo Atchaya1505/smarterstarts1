@@ -129,11 +129,14 @@ def recommend_tools(problem_description, company_size):
     Ensure clean, readable markdown format.
     """
     try:
+        try:
         model = genai.GenerativeModel(MODEL_NAME)
-        response = model.generate_content(prompt)
 
-        if not response or not response.text:
-            raise Exception("Empty Gemini response")
+        # ✅ Added longer timeout + better error tracking
+        response = model.generate_content(prompt, request_options={"timeout": 60})
+
+        if not response or not hasattr(response, "text") or not response.text.strip():
+            raise Exception("Empty Gemini response or timeout")
 
         text = response.text.strip()
 
@@ -145,11 +148,11 @@ def recommend_tools(problem_description, company_size):
             if match:
                 tool_names.append(match.group(1).strip())
 
-        print(f"✅ Gemini generation succeeded. Sample output: {text[:120]}...")
+        print("✅ Gemini generation succeeded.")
         return {"text": text, "tools": tool_names}
 
     except Exception as e:
-        print(f"⚠️ Gemini generation error: {e}")
+        print(f"⚠️ Gemini API error: {e}")
         return {
             "text": """
 1. ClickUp – All-in-one project management.
