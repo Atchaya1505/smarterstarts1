@@ -2,6 +2,8 @@ import os
 import datetime
 import re
 import smtplib
+import json
+import traceback
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
@@ -13,11 +15,9 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 # =========================================================
-# STEP 1: Load environment and configure APIs
+# STEP 1: Flask + CORS Setup
 # =========================================================
 app = Flask(__name__)
-
-# ✅ FIXED CORS for Render
 CORS(app, origins=["*"], supports_credentials=True)
 
 @app.after_request
@@ -29,12 +29,11 @@ def after_request(response):
 
 
 # =========================================================
-# STEP 2: Environment and Firestore Setup
+# STEP 2: Environment + Firestore
 # =========================================================
 load_dotenv()
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-import json
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 firebase_credentials = json.loads(os.getenv("FIREBASE_CREDENTIALS"))
 db = firestore.Client.from_service_account_info(firebase_credentials)
 
@@ -52,7 +51,6 @@ SCOPE = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
 ]
-
 creds = Credentials.from_service_account_info(firebase_credentials, scopes=SCOPE)
 gc = gspread.authorize(creds)
 
@@ -93,14 +91,18 @@ def save_to_firestore(data):
 
 
 # =========================================================
-# STEP 5: Gemini Model Configuration (Fixed)
+# STEP 5: Gemini Model Configuration (Auto-Fallback)
 # =========================================================
 def get_available_model():
-    """Use a fixed stable Gemini model for production."""
-    model_name = "models/gemini-1.5-flash"
-    print(f"✅ Using fixed Gemini model: {model_name}")
-    return model_name
-
+    """Choose the most stable Gemini model for current SDK."""
+    try:
+        preferred = "models/gemini-1.5-pro-latest"
+        fallback = "models/gemini-1.5-flash-latest"
+        print(f"✅ Using Gemini model: {preferred}")
+        return preferred
+    except Exception as e:
+        print(f"⚠️ Fallback to {fallback} due to error: {e}")
+        return fallback
 
 MODEL_NAME = get_available_model()
 
@@ -110,7 +112,7 @@ MODEL_NAME = get_available_model()
 # =========================================================
 def recommend_tools(problem_description, company_size):
     prompt = f"""
-    You are an expert AI SaaS Tool Recommender. Analyze the user's problem and company size, 
+    You are an expert AI SaaS Tool Recommender. Analyze the user's problem and company size,
     and generate the **top 5 SaaS tools**, ranked 1–5, in professional markdown format.
 
     Problem: {problem_description}
@@ -128,21 +130,18 @@ def recommend_tools(problem_description, company_size):
 
     Ensure clean, readable markdown format.
     """
+
     try:
         model = genai.GenerativeModel(MODEL_NAME)
-
-        # ✅ Added longer timeout + better error tracking
-        response = model.generate_content(prompt, request_options={"timeout": 60})
+        response = model.generate_content(prompt, request_options={"timeout": 80})
 
         if not response or not hasattr(response, "text") or not response.text.strip():
             raise Exception("Empty Gemini response or timeout")
 
         text = response.text.strip()
-
-        # Extract tool names
-        lines = text.split("\n")
         tool_names = []
-        for line in lines:
+
+        for line in text.split("\n"):
             match = re.match(r"^\d+\.\s*([A-Za-z0-9 &+_:\-–—()./]+)", line.strip())
             if match:
                 tool_names.append(match.group(1).strip())
@@ -151,10 +150,9 @@ def recommend_tools(problem_description, company_size):
         return {"text": text, "tools": tool_names}
 
     except Exception as e:
-        import traceback
-        print("⚠️ Gemini generation error (full details below):")
+        print("⚠️ Gemini generation error:")
         traceback.print_exc()
-        print("⚠️ END Gemini Error ---------------------------------------------------")
+        print("⚠️ Using fallback recommendations.")
         return {
             "text": """
 1. ClickUp – All-in-one project management.
@@ -259,6 +257,7 @@ def recommend_api():
         })
     except Exception as e:
         print("❌ Error:", e)
+        traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
@@ -276,13 +275,14 @@ def submit_feedback():
         return jsonify({"status": "success", "message": "Feedback saved successfully!"})
     except Exception as e:
         print("❌ Error saving feedback:", e)
+        traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
 # =========================================================
-# STEP 9: Run the server
+# STEP 9: Run the Server
 # =========================================================
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))  # ✅ Render dynamically assigns the port
+    port = int(os.environ.get("PORT", 5000))
     print(f"🚀 SmarterStarts Flask backend running on port {port}...")
     app.run(host="0.0.0.0", port=port, debug=False)
