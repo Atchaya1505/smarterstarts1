@@ -97,7 +97,7 @@ def save_to_firestore(data):
 # =========================================================
 def get_available_model():
     """Use a fixed stable Gemini model for production."""
-    model_name = "models/gemini-1.5-pro-latest"
+    model_name = "models/gemini-1.5-flash"
     print(f"✅ Using fixed Gemini model: {model_name}")
     return model_name
 
