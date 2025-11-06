@@ -1,5 +1,5 @@
-import google.generativeai as genai
 import os
+import google.generativeai as genai
 from dotenv import load_dotenv
 
 # Load .env so it gets your GEMINI_API_KEY

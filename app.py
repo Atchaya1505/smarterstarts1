@@ -29,11 +29,12 @@ def after_request(response):
 
 
 # =========================================================
-# STEP 2: Environment + Firestore
+# STEP 2: Environment + Firestore Setup
 # =========================================================
 load_dotenv()
 
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
 firebase_credentials = json.loads(os.getenv("FIREBASE_CREDENTIALS"))
 db = firestore.Client.from_service_account_info(firebase_credentials)
 
@@ -91,18 +92,18 @@ def save_to_firestore(data):
 
 
 # =========================================================
-# STEP 5: Gemini Model Configuration (Auto-Fallback)
+# STEP 5: Gemini Model Configuration (Stable)
 # =========================================================
 def get_available_model():
-    """Choose the most stable Gemini model for current SDK."""
+    """Select the latest stable Gemini model."""
     try:
-        preferred = "models/gemini-1.5-pro-latest"
-        fallback = "models/gemini-1.5-flash-latest"
-        print(f"✅ Using Gemini model: {preferred}")
-        return preferred
+        model_name = "models/gemini-2.5-flash"
+        print(f"✅ Using Gemini model: {model_name}")
+        return model_name
     except Exception as e:
-        print(f"⚠️ Fallback to {fallback} due to error: {e}")
-        return fallback
+        print(f"⚠️ Defaulting to fallback model due to: {e}")
+        return "models/gemini-1.5-pro-latest"
+
 
 MODEL_NAME = get_available_model()
 
@@ -128,12 +129,12 @@ def recommend_tools(problem_description, company_size):
     7. **Approx Monthly Pricing (USD)**
     8. **Website Link**
 
-    Ensure clean, readable markdown format.
+    Format cleanly in markdown.
     """
 
     try:
         model = genai.GenerativeModel(MODEL_NAME)
-        response = model.generate_content(prompt, request_options={"timeout": 80})
+        response = model.generate_content(prompt, request_options={"timeout": 90})
 
         if not response or not hasattr(response, "text") or not response.text.strip():
             raise Exception("Empty Gemini response or timeout")
@@ -161,7 +162,7 @@ def recommend_tools(problem_description, company_size):
 4. Asana – Workflow management.
 5. Zoho Projects – Affordable suite.
 """,
-            "tools": ["ClickUp", "HubSpot", "Notion", "Asana", "Zoho Projects"]
+            "tools": ["ClickUp", "HubSpot", "Notion", "Asana", "Zoho Projects"],
         }
 
 
@@ -253,7 +254,7 @@ def recommend_api():
         return jsonify({
             "status": "success",
             "recommendations": recommendations["text"],
-            "tool_names": recommendations["tools"]
+            "tool_names": recommendations["tools"],
         })
     except Exception as e:
         print("❌ Error:", e)
