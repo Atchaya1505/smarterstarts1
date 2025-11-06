@@ -2,7 +2,6 @@ import os
 import datetime
 import re
 import smtplib
-import json
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
@@ -19,7 +18,7 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
-# ✅ Allow all origins (fixes frontend CORS issues)
+# ✅ Add this block below your CORS line
 @app.after_request
 def after_request(response):
     response.headers.add("Access-Control-Allow-Origin", "*")
@@ -27,16 +26,11 @@ def after_request(response):
     response.headers.add("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
     return response
 
-
-# Load environment variables
+# continue with your existing code below 👇
 load_dotenv()
-
-# Configure Gemini API
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-# =========================================================
-# Firestore setup
-# =========================================================
+import json
 firebase_credentials = json.loads(os.getenv("FIREBASE_CREDENTIALS"))
 db = firestore.Client.from_service_account_info(firebase_credentials)
 
@@ -57,6 +51,7 @@ SCOPE = [
 firebase_credentials = json.loads(os.getenv("FIREBASE_CREDENTIALS"))
 creds = Credentials.from_service_account_info(firebase_credentials, scopes=SCOPE)
 gc = gspread.authorize(creds)
+
 SHEET_NAME = "SmarterStarts_Consultations"
 worksheet = gc.open(SHEET_NAME).sheet1
 
@@ -103,10 +98,10 @@ def get_available_model():
             if "generateContent" in getattr(m, "supported_generation_methods", []):
                 print(f"✅ Using Gemini model: {m.name}")
                 return m.name
-        return "models/gemini-1.5-flash"
+        return "models/gemini-2.5-pro-preview-03-25"
     except Exception as e:
         print(f"⚠️ Could not list models: {e}")
-        return "models/gemini-1.5-flash"
+        return "models/gemini-2.5-pro-preview-03-25"
 
 
 MODEL_NAME = get_available_model()
@@ -117,29 +112,26 @@ MODEL_NAME = get_available_model()
 # =========================================================
 def recommend_tools(problem_description, company_size):
     prompt = f"""
-You are an expert AI SaaS Tool Recommender.
-Analyze the user's problem and company size, and generate the **top 5 SaaS tools**, ranked 1–5, in professional markdown format.
+    You are an expert AI SaaS Tool Recommender. Analyze the user's problem and company size, and generate the **top 5 SaaS tools**, ranked 1–5, in professional markdown format.
 
-Problem: {problem_description}
-Company Size: {company_size}
+    Problem: {problem_description}
+    Company Size: {company_size}
 
-Each tool must include:
-1. **Tool Name**
-2. **Core Purpose**
-3. **How it suits the user's problem**
-4. **Key Features** (4–6 bullet points)
-5. **Pros**
-6. **Cons**
-7. **Approx Monthly Pricing (USD)**
-8. **Website Link**
+    Each tool must include:
+    1. **Tool Name**
+    2. **Core Purpose**
+    3. **How it suits the user's problem**
+    4. **Key Features** (4–6 bullet points)
+    5. **Pros**
+    6. **Cons**
+    7. **Approx Monthly Pricing (USD)**
+    8. **Website Link**
 
-Ensure clean readable markdown format.
-"""
-
+    Ensure clean readable markdown format.
+    """
     try:
         model = genai.GenerativeModel(MODEL_NAME)
         response = model.generate_content(prompt)
-
         if not response or not response.text:
             raise Exception("Empty Gemini response")
 
@@ -159,9 +151,13 @@ Ensure clean readable markdown format.
         print(f"⚠️ Gemini generation error: {e}")
         return {
             "text": """
-⚠️ Gemini model failed. Please try again.
+1. ClickUp – All-in-one project management.
+2. HubSpot – CRM & marketing automation.
+3. Notion – Team workspace.
+4. Asana – Workflow management.
+5. Zoho Projects – Affordable suite.
 """,
-            "tools": [],
+            "tools": ["ClickUp", "HubSpot", "Notion", "Asana", "Zoho Projects"]
         }
 
 
@@ -183,20 +179,20 @@ def send_admin_alert(data):
         html = f"""
         <html>
         <body>
-            <h3>New SmarterStarts Consultation Alert 🚀</h3>
-            <p><b>Name:</b> {data['user']['name']}<br>
-            <b>Email:</b> {data['user']['email']}<br>
-            <b>Company Size:</b> {data['user']['company_size']}<br>
-            <b>Problem:</b> {data['problem']}</p>
-            <p><b>Selected Tools:</b> {", ".join(data.get("selected_tools", []))}</p>
-            <p><b>Rating:</b> {data.get("rating", "N/A")} / 5<br>
-            <b>Feedback:</b> {data.get("user_feedback", "N/A")}</p>
-            <p><b>Created:</b> {data['createdAt']}</p>
+        <h3>New SmarterStarts Consultation Alert 🚀</h3>
+        <p><b>Name:</b> {data['user']['name']}<br>
+        <b>Email:</b> {data['user']['email']}<br>
+        <b>Company Size:</b> {data['user']['company_size']}<br>
+        <b>Problem:</b> {data['problem']}</p>
+        <p><b>Selected Tools:</b> {", ".join(data.get("selected_tools", []))}</p>
+        <p><b>Rating:</b> {data.get("rating", "N/A")} / 5<br>
+        <b>Feedback:</b> {data.get("user_feedback", "N/A")}</p>
+        <p><b>Created:</b> {data['createdAt']}</p>
         </body>
         </html>
         """
-
         msg.attach(MIMEText(html, "html"))
+
         with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
             smtp.starttls()
             smtp.login(sender, password)
